@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Pipeline Explorer</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Custom scrollbar for token display */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    /* Canvas container styling */
+    #canvas-wrapper {
+      position: relative;
+      width: 100%;
+      height: 480px;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      background: radial-gradient(circle at center, #ffffff 0%, #f1f5f9 100%);
+      border: 1px solid #e2e8f0;
+      cursor: grab;
+      touch-action: none;
+    }
+    #canvas-wrapper:active {
+      cursor: grabbing;
+    }
+    #labels-container {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .word-label {
+      position: absolute;
+      transform: translate(-50%, -145%);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(203, 213, 225, 0.95);
+      color: #1e293b;
+      max-width: 210px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.06);
+      transition: transform 0.15s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+      user-select: none;
+    }
+    .word-label.highlighted {
+      background: #4f46e5;
+      color: #ffffff;
+      border-color: #3730a3;
+      font-size: 12px;
+      max-width: 280px;
+      z-index: 20;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.38);
+      transform: translate(-50%, -155%) scale(1.06);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">LLM Pipeline Explorer</h1>
+          <p class="text-xs text-slate-500">From raw sentences to tokens & 3D sentence embeddings</p>
+        </div>
+      </div>
+
+      <!-- Pipeline Flow Pill -->
+      <div class="flex items-center gap-2 text-xs font-medium bg-slate-100 px-3 py-1.5 rounded-full self-start sm:self-auto border border-slate-200">
+        <span class="text-slate-600">Corpus</span>
+        <span class="text-slate-400">→</span>
+        <span class="text-indigo-600 font-semibold">1. Vocab & Tokenizer</span>
+        <span class="text-slate-400">→</span>
+        <span class="text-emerald-600 font-semibold">2. 3D Sentence Embeddings</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-8">
+
+    <!-- ==================== PART 1: VOCABULARY BUILDER & TOKENIZER ==================== -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-5 border-b border-slate-100">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">Part 1</span>
+            <h2 class="text-lg font-bold text-slate-900">Vocabulary Builder & Tokenizer</h2>
+          </div>
+          <p class="text-sm text-slate-600 mt-1">
+            First build a <strong>Vocabulary</strong> from training text to assign Token IDs, then tokenize any sentence using your learned vocabulary.
+          </p>
+        </div>
+
+        <!-- Mode Toggle: Subword vs Word -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 self-start">
+          <button id="btn-mode-subword" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition">
+            Subword (BPE-Style)
+          </button>
+          <button id="btn-mode-word" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition">
+            Word-Level
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 1A: Interactive Vocabulary Builder Sub-Panel -->
+      <div class="mt-5 bg-indigo-50/40 rounded-xl border border-indigo-100 p-4 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 class="text-xs sm:text-sm font-bold text-indigo-950 flex items-center gap-1.5">
+              <span>📚 Step 1A: Build Your Vocabulary</span>
+              <span id="vocab-size-badge" class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-indigo-600 text-white">
+                0 tokens
+              </span>
+            </h3>
+            <p class="text-xs text-slate-600 mt-0.5">
+              Train on a corpus or add custom tokens. Words missing from your vocabulary become <code class="text-rose-600 font-semibold">&lt;UNK&gt; (ID 1)</code>!
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button id="btn-load-sample-corpus" type="button" class="text-xs px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 font-medium border border-indigo-200 transition">
+              Load Sample Corpus
+            </button>
+            <button id="btn-reset-vocab" type="button" class="text-xs px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 font-medium border border-slate-200 transition">
+              Reset Default Vocab
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <!-- Left: Corpus Trainer & Single Token Adder -->
+          <div class="lg:col-span-5 space-y-2.5">
+            <textarea
+              id="vocab-corpus-input"
+              rows="3"
+              placeholder="Paste training sentences here to learn vocabulary tokens..."
+              class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800"
+            >The cat sat on the mat. A feline rested on the rug. I ate a sweet red apple. Apple launched a new smartphone. The king rules the kingdom.</textarea>
+            <div class="flex items-center gap-2">
+              <button id="btn-build-vocab" type="button" class="flex-1 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition">
+                Build Vocabulary from Text
+              </button>
+            </div>
+
+            <!-- Add individual token -->
+            <div class="flex items-center gap-1.5 pt-1">
+              <input
+                id="single-vocab-input"
+                type="text"
+                placeholder="Add single word/subword..."
+                class="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              />
+              <button id="btn-add-single-vocab" type="button" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg transition shrink-0">
+                + Add Token
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Live Learned Vocabulary Explorer -->
+          <div class="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-3 flex flex-col justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-100">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Learned Vocabulary Table (Active matches highlighted)
+              </span>
+              <input
+                id="vocab-filter-input"
+                type="text"
+                placeholder="Filter vocab..."
+                class="px-2.5 py-1 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36"
+              />
+            </div>
+            <div id="vocab-pills-container" class="flex flex-wrap gap-1.5 max-h-[124px] overflow-y-auto pr-1 content-start">
+              <!-- Populated dynamically with [ID] token pills -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 1B: Input & Presets -->
+      <div class="mt-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs sm:text-sm font-bold text-slate-800">✂️ Step 1B: Tokenize Sentence Using Built Vocabulary</h3>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-slate-500">Try a preset sentence:</span>
+          <button class="preset-btn text-xs px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 transition" data-text="The cat sat on the mat">
+            "The cat sat on the mat"
+          </button>
+          <button class="preset-btn text-xs px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 transition" data-text="A feline rested on the rug">
+            "A feline rested on the rug"
+          </button>
+          <button class="preset-btn text-xs px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 transition" data-text="I ate a sweet red apple">
+            "I ate a sweet red apple"
+          </button>
+          <button class="preset-btn text-xs px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 transition" data-text="The dragon flew over the castle">
+            "The dragon flew over the castle" (Tests &lt;UNK&gt;)
+          </button>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2.5">
+          <input
+            id="tokenizer-input"
+            type="text"
+            value="The cat sat on the mat"
+            placeholder="Type any full sentence here to tokenize it..."
+            class="flex-1 px-4 py-3 text-sm sm:text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/50 text-slate-900"
+          />
+          <button
+            id="btn-plot-part1-sentence"
+            type="button"
+            class="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 shrink-0"
+          >
+            <span>Plot Full Sentence in 3D</span>
+            <span>↓</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Token Visualization Output -->
+      <div class="mt-5 bg-slate-50 rounded-xl border border-slate-200 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <span id="tokenizer-mode-desc" class="text-xs text-slate-600">
+            <strong>Subword (BPE):</strong> Matches known words in your vocabulary first, or splits unknown words into known subword pieces before falling back to <code>&lt;UNK&gt;</code>.
+          </span>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="bg-white px-2.5 py-1 rounded-lg border border-slate-200 font-medium text-slate-700">
+              Chars: <strong id="char-count" class="text-slate-900">0</strong>
+            </span>
+            <span class="bg-indigo-600 px-2.5 py-1 rounded-lg font-medium text-white shadow-sm">
+              Tokens: <strong id="token-count">0</strong>
+            </span>
+            <span id="oov-badge" class="bg-white px-2.5 py-1 rounded-lg border border-slate-200 font-medium text-slate-700">
+              OOV (&lt;UNK&gt;): <strong id="oov-count" class="text-slate-900">0</strong>
+            </span>
+          </div>
+        </div>
+
+        <!-- Token Pills Container -->
+        <div id="tokens-container" class="flex flex-wrap gap-2 min-h-[74px] items-start pt-1">
+          <!-- Dynamically populated token pills -->
+        </div>
+
+        <p class="text-[11px] text-slate-400 mt-3 flex items-center gap-1.5">
+          <span>💡 Tip: Notice how unknown words show <strong class="text-rose-500">&lt;UNK&gt; [1]</strong> until you add them to your vocabulary above! Click any token pill or <strong>"Plot Full Sentence in 3D ↓"</strong> to view in Step 2.</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- ==================== PART 2: 3D EMBEDDING SPACE EXPLORER ==================== -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-5 border-b border-slate-100">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Part 2</span>
+            <h2 class="text-lg font-bold text-slate-900">3D Embedding Space Explorer (Full Sentences & Words)</h2>
+          </div>
+          <p class="text-sm text-slate-600 mt-1">
+            LLMs combine all tokens in a sentence into a single 3D point (vector). Toggle between <strong>Spelling</strong> and <strong>Meaning</strong> to see how full sentences rearrange!
+          </p>
+        </div>
+
+        <!-- Embedding Space Mode Switch -->
+        <div class="flex flex-wrap items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200 self-start">
+          <button id="btn-embed-spelling" class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5">
+            <span>🔤</span> Spelling-Based (Lexical)
+          </button>
+          <button id="btn-embed-meaning" class="px-3.5 py-2 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
+            <span>🧠</span> Meaning-Based (Semantic)
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode Explanation Banner & Full Sentence Input Bar -->
+      <div class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+        <div id="embed-explanation" class="lg:col-span-6 bg-indigo-50/70 border border-indigo-100 rounded-xl p-3.5 text-xs sm:text-sm text-slate-700">
+          <strong class="text-indigo-900">Spelling-Based Space:</strong> Sentences with matching words or letters cluster together—so <em>"I ate a sweet red apple"</em> sits right next to <em>"Apple launched a new smartphone"</em> because both share the word <strong>apple</strong>!
+        </div>
+
+        <!-- Custom Sentence Input Bar -->
+        <div class="lg:col-span-6 flex items-center gap-2">
+          <div class="relative flex-1">
+            <input
+              id="sentence-search-input"
+              type="text"
+              placeholder='Type any full sentence (e.g., "A kitten slept on the carpet")...'
+              class="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+          </div>
+          <button id="btn-plot-sentence" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-xl transition shrink-0">
+            Plot Sentence
+          </button>
+        </div>
+      </div>
+
+      <!-- Status / Feedback message box -->
+      <div id="status-banner" class="hidden mt-3 px-3.5 py-2 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 flex items-center justify-between">
+        <span id="status-text"></span>
+        <button id="close-status" class="text-amber-600 hover:text-amber-900 font-bold ml-3">✕</button>
+      </div>
+
+      <!-- 3D Viewport + Inspector Sidebar -->
+      <div class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <!-- 3D Canvas (8 cols on lg) -->
+        <div class="lg:col-span-8 relative">
+          <div id="canvas-wrapper">
+            <div id="labels-container"></div>
+
+            <!-- Top-Left Controls Overlay -->
+            <div class="absolute top-3 left-3 z-10 flex flex-wrap gap-2">
+              <button id="btn-reset-camera" class="bg-white/90 hover:bg-white text-slate-700 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm backdrop-blur-sm transition">
+                Reset View
+              </button>
+            </div>
+
+            <!-- Bottom-Left Interaction Hint -->
+            <div class="absolute bottom-3 left-3 z-10 bg-white/85 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-200 text-[11px] text-slate-600 pointer-events-none">
+              🖱️ Drag to rotate • Scroll to zoom • Click any sentence chip to inspect
+            </div>
+
+            <!-- Dynamic Legend Overlay -->
+            <div id="cluster-legend" class="absolute bottom-3 right-3 z-10 bg-white/90 backdrop-blur-sm p-3 rounded-xl border border-slate-200 shadow-sm text-xs space-y-1.5 max-w-[205px]">
+              <!-- Populated dynamically based on Spelling vs Meaning mode -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Sentence & Top 3 Nearest Neighbors Panel (4 cols on lg) -->
+        <div class="lg:col-span-4 bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col justify-between space-y-4">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Selected Point</span>
+              <span id="selected-coords" class="font-mono-code text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                (0.0, 0.0, 0.0)
+              </span>
+            </div>
+            <p id="selected-text" class="mt-2 text-sm font-bold text-slate-900 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              "The cat sat on the mat"
+            </p>
+            <p id="selected-cluster-badge" class="mt-2 text-xs text-slate-600">
+              Cluster: <strong class="text-slate-800">Shared Words / Structure</strong>
+            </p>
+
+            <!-- Top 3 Nearest Neighbors -->
+            <div class="mt-4 pt-3 border-t border-slate-200">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-slate-700">Top 3 Nearest Neighbors</span>
+                <span id="nn-mode-tag" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                  Spelling Mode
+                </span>
+              </div>
+              <div id="nearest-neighbors-list" class="space-y-2">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <div class="text-[11px] text-slate-500 bg-white p-2.5 rounded-lg border border-slate-200">
+            💡 Notice how the nearest neighbors completely change when you toggle between <strong>Spelling</strong> and <strong>Meaning</strong>!
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Clickable Sentence Chips -->
+      <div class="mt-4 pt-3 border-t border-slate-100">
+        <div class="flex flex-wrap items-center gap-1.5" id="sentence-chips-bar">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 text-center text-xs text-slate-400">
+    LLM Pipeline Explorer • Educational Visualization of Tokenization & 3D Sentence Embeddings
+  </footer>
+
+  <script>
+    // =========================================================================
+    // 1. 3D SENTENCE EMBEDDING DATASET & CLUSTERS
+    // =========================================================================
+    const SPELLING_CLUSTERS = {
+      cat_mat_trap: { label: "Shared Words ('cat'/'mat')", color: "#6366f1" },
+      apple_trap:   { label: "Shared Word ('apple')", color: "#ec4899" },
+      the_start:    { label: "Starts with 'The...'", color: "#0ea5e9" },
+      pronoun_past: { label: "Pronoun + Past Tense", color: "#f59e0b" },
+      custom:       { label: "Custom Plotted Sentence", color: "#8b5cf6" }
+    };
+
+    const MEANING_CLUSTERS = {
+      pets:    { label: "Pets & Animals", color: "#10b981" },
+      food:    { label: "Food & Eating", color: "#f97316" },
+      tech:    { label: "Technology & Coding", color: "#3b82f6" },
+      royalty: { label: "Royalty & Kingdoms", color: "#a855f7" },
+      custom:  { label: "Custom Plotted Sentence", color: "#64748b" }
+    };
+
+    const SENTENCE_DATASET = [
+      // Spelling trap 1: "The cat sat on the mat" vs "The car sat on the road" (spelling overlap) vs "A feline rested on the rug" (meaning overlap)
+      {
+        text: "The cat sat on the mat",
+        sCluster: "cat_mat_trap", sPos: [-4.2, 2.6, 1.9],
+        mCluster: "pets",         mPos: [-4.1, -2.3, 2.1]
+      },
+      {
+        text: "The car sat on the road",
+        sCluster: "cat_mat_trap", sPos: [-3.6, 2.2, 1.4],
+        mCluster: "tech",         mPos: [3.2, 2.2, 2.5]
+      },
+      {
+        text: "A feline rested on the rug",
+        sCluster: "pronoun_past", sPos: [2.4, -2.6, -2.1],
+        mCluster: "pets",         mPos: [-3.7, -2.0, 1.7]
+      },
+      // Spelling trap 2: "apple" (fruit) vs "Apple" (tech company)
+      {
+        text: "I ate a sweet red apple",
+        sCluster: "apple_trap",   sPos: [-3.4, -2.1, 2.7],
+        mCluster: "food",         mPos: [4.2, -2.3, -1.9]
+      },
+      {
+        text: "Apple launched a new smartphone",
+        sCluster: "apple_trap",   sPos: [-2.9, -1.7, 2.2],
+        mCluster: "tech",         mPos: [3.8, 2.8, 1.9]
+      },
+      // More semantic & lexical examples
+      {
+        text: "The dog barked at the mailman",
+        sCluster: "the_start",    sPos: [3.9, 2.3, -1.8],
+        mCluster: "pets",         mPos: [-4.4, -2.6, 2.5]
+      },
+      {
+        text: "A puppy chased the ball",
+        sCluster: "pronoun_past", sPos: [2.0, -2.2, -2.6],
+        mCluster: "pets",         mPos: [-3.5, -2.5, 2.4]
+      },
+      {
+        text: "She baked a fresh banana cake",
+        sCluster: "pronoun_past", sPos: [2.7, -2.9, -1.9],
+        mCluster: "food",         mPos: [3.8, -2.0, -2.3]
+      },
+      {
+        text: "The programmer wrote clean Python code",
+        sCluster: "the_start",    sPos: [3.4, 1.9, -1.4],
+        mCluster: "tech",         mPos: [4.1, 2.5, 2.3]
+      },
+      {
+        text: "The king rules the kingdom",
+        sCluster: "the_start",    sPos: [4.3, 2.6, -2.1],
+        mCluster: "royalty",      mPos: [-4.0, 3.1, -1.9]
+      },
+      {
+        text: "The queen wore a golden crown",
+        sCluster: "the_start",    sPos: [3.7, 2.5, -2.3],
+        mCluster: "royalty",      mPos: [-3.5, 2.8, -1.5]
+      }
+    ];
+
+    // =========================================================================
+    // 2. PART 1: VOCABULARY BUILDER & TOKENIZER LOGIC
+    // =========================================================================
+    let tokenizerMode = "subword"; // "subword" | "word"
+    let currentTokens = [];
+    let vocabulary = new Map(); // tokenString -> id
+
+    const SPECIAL_TOKENS = ["<PAD>", "<UNK>", "<BOS>", "<EOS>"];
+    const DEFAULT_CORPUS = "The cat sat on the mat. A feline rested on the rug. I ate a sweet red apple. Apple launched a new smartphone. The king rules the kingdom.";
+    const SAMPLE_EXTENDED_CORPUS = "The cat sat on the mat. A feline rested on the rug. The dog barked at the mailman. A puppy chased the ball. I ate a sweet red apple. Apple launched a new smartphone. The programmer wrote clean Python code. The king rules the kingdom. The queen wore a golden crown.";
+
+    const TOKEN_COLORS = [
+      "bg-indigo-100 text-indigo-900 border-indigo-300",
+      "bg-emerald-100 text-emerald-900 border-emerald-300",
+      "bg-amber-100 text-amber-900 border-amber-300",
+      "bg-sky-100 text-sky-900 border-sky-300",
+      "bg-purple-100 text-purple-900 border-purple-300",
+      "bg-teal-100 text-teal-900 border-teal-300"
+    ];
+
+    // Extract clean word/subword units from corpus text
+    function extractPiecesForVocab(text, mode) {
+      const rawPieces = text.match(/[A-Za-z0-9]+|[^\sA-Za-z0-9]/g) || [];
+      if (mode === "word") return rawPieces;
+
+      const suffixes = ["ing", "ed", "ly", "tion", "ment", "ness", "ers", "es", "s"];
+      const prefixes = ["un", "re", "pre", "dis"];
+      const rootKeepWords = ["king", "ring", "sing", "wing", "bring", "thing", "rules"];
+      const pieces = [];
+
+      rawPieces.forEach(piece => {
+        const lower = piece.toLowerCase();
+        if (piece.length <= 4 || !/^[A-Za-z]+$/.test(piece) || rootKeepWords.includes(lower)) {
+          pieces.push(piece);
+          return;
+        }
+        let rem = piece;
+        let preFound = null;
+        let sufFound = null;
+
+        for (const pre of prefixes) {
+          if (rem.toLowerCase().startsWith(pre) && rem.length - pre.length >= 3) {
+            preFound = rem.slice(0, pre.length);
+            rem = rem.slice(pre.length);
+            break;
+          }
+        }
+        for (const suf of suffixes) {
+          if (rem.toLowerCase().endsWith(suf) && rem.length - suf.length >= 3) {
+            sufFound = rem.slice(rem.length - suf.length);
+            rem = rem.slice(0, rem.length - suf.length);
+            break;
+          }
+        }
+        if (preFound) pieces.push(preFound);
+        if (rem.length > 0) pieces.push(rem);
+        if (sufFound) pieces.push(sufFound);
+      });
+
+      return pieces;
+    }
+
+    // Build sequential vocabulary from training text
+    function buildVocabularyFromText(corpusText) {
+      vocabulary.clear();
+      SPECIAL_TOKENS.forEach((tok, idx) => vocabulary.set(tok, idx));
+
+      const extracted = extractPiecesForVocab(corpusText, tokenizerMode);
+      const freqMap = new Map();
+      extracted.forEach(tok => {
+        freqMap.set(tok, (freqMap.get(tok) || 0) + 1);
+      });
+
+      // Sort by frequency (most common tokens get lower IDs, just like real BPE/WordPiece!)
+      const sortedTokens = Array.from(freqMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(entry => entry[0]);
+
+      sortedTokens.forEach(tok => {
+        if (!vocabulary.has(tok)) {
+          vocabulary.set(tok, vocabulary.size);
+        }
+      });
+
+      // Ensure common subword affixes exist in subword mode for realistic fallback
+      if (tokenizerMode === "subword") {
+        ["ing", "ed", "ly", "s", "er", "un", "re"].forEach(affix => {
+          if (!vocabulary.has(affix)) {
+            vocabulary.set(affix, vocabulary.size);
+          }
+        });
+      }
+
+      renderVocabularyTable();
+      renderTokens();
+    }
+
+    function addSingleTokenToVocab(rawToken) {
+      const clean = rawToken.trim();
+      if (!clean) return;
+      if (!vocabulary.has(clean)) {
+        vocabulary.set(clean, vocabulary.size);
+      }
+      renderVocabularyTable();
+      renderTokens();
+    }
+
+    function lookupVocabId(piece) {
+      if (vocabulary.has(piece)) {
+        return { matchedText: piece, id: vocabulary.get(piece), isOOV: false };
+      }
+      // Case-insensitive fallback check
+      const lower = piece.toLowerCase();
+      for (const [k, v] of vocabulary.entries()) {
+        if (!SPECIAL_TOKENS.includes(k) && k.toLowerCase() === lower) {
+          return { matchedText: k, id: v, isOOV: false };
+        }
+      }
+      return null;
+    }
+
+    function tokenizeText(text, mode) {
+      if (!text.trim()) return [];
+      const rawPieces = text.match(/[A-Za-z0-9]+|[^\sA-Za-z0-9]/g) || [];
+      const tokens = [];
+
+      rawPieces.forEach(piece => {
+        // 1. Direct match in built vocabulary
+        const directMatch = lookupVocabId(piece);
+        if (directMatch) {
+          tokens.push({
+            text: piece,
+            vocabKey: directMatch.matchedText,
+            id: directMatch.id,
+            isOOV: false
+          });
+          return;
+        }
+
+        // 2. In Subword mode, try splitting into known subword pieces from the built vocabulary
+        if (mode === "subword" && /^[A-Za-z]+$/.test(piece) && piece.length > 3) {
+          const subPieces = extractPiecesForVocab(piece, "subword");
+          if (subPieces.length > 1) {
+            subPieces.forEach(sub => {
+              const subMatch = lookupVocabId(sub);
+              if (subMatch) {
+                tokens.push({
+                  text: sub,
+                  vocabKey: subMatch.matchedText,
+                  id: subMatch.id,
+                  isOOV: false
+                });
+              } else {
+                tokens.push({
+                  text: sub,
+                  vocabKey: "<UNK>",
+                  id: vocabulary.get("<UNK>") ?? 1,
+                  isOOV: true
+                });
+              }
+            });
+            return;
+          }
+        }
+
+        // 3. Otherwise Out-Of-Vocabulary -> <UNK> (ID 1)
+        tokens.push({
+          text: piece,
+          vocabKey: "<UNK>",
+          id: vocabulary.get("<UNK>") ?? 1,
+          isOOV: true
+        });
+      });
+
+      return tokens;
+    }
+
+    function renderVocabularyTable(matchedVocabKeys = new Set()) {
+      const container = document.getElementById("vocab-pills-container");
+      const filterText = (document.getElementById("vocab-filter-input")?.value || "").toLowerCase();
+      document.getElementById("vocab-size-badge").textContent = `${vocabulary.size} tokens`;
+
+      container.innerHTML = "";
+      vocabulary.forEach((id, token) => {
+        if (filterText && !token.toLowerCase().includes(filterText) && !String(id).includes(filterText)) {
+          return;
+        }
+
+        const isSpecial = SPECIAL_TOKENS.includes(token);
+        const isMatched = matchedVocabKeys.has(token);
+
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.title = isSpecial ? `Special token ${token} (ID ${id})` : `Click to insert "${token}" into tokenizer input`;
+
+        let styleClass = "bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300";
+        if (isSpecial) {
+          styleClass = "bg-amber-50 text-amber-800 border-amber-200 font-semibold";
+        }
+        if (isMatched) {
+          styleClass = "bg-indigo-600 text-white border-indigo-700 font-semibold shadow-2xs ring-1 ring-indigo-300";
+        }
+
+        pill.className = `inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition ${styleClass}`;
+        pill.innerHTML = `<span class="font-mono-code opacity-75">${id}:</span><span>${token}</span>`;
+
+        if (!isSpecial) {
+          pill.addEventListener("click", () => {
+            const inputEl = document.getElementById("tokenizer-input");
+            inputEl.value = inputEl.value ? `${inputEl.value.trim()} ${token}` : token;
+            renderTokens();
+          });
+        }
+
+        container.appendChild(pill);
+      });
+    }
+
+    function renderTokens() {
+      const inputEl = document.getElementById("tokenizer-input");
+      const container = document.getElementById("tokens-container");
+      const text = inputEl.value;
+
+      const charLen = text.length;
+      document.getElementById("char-count").textContent = charLen;
+      currentTokens = tokenizeText(text, tokenizerMode);
+      const tokLen = currentTokens.length;
+      const oovCount = currentTokens.filter(t => t.isOOV).length;
+
+      document.getElementById("token-count").textContent = tokLen;
+      document.getElementById("oov-count").textContent = oovCount;
+      const oovBadge = document.getElementById("oov-badge");
+      oovBadge.className = oovCount > 0
+        ? "bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 font-medium text-rose-700"
+        : "bg-white px-2.5 py-1 rounded-lg border border-slate-200 font-medium text-slate-700";
+
+      // Highlight matched vocabulary tokens in the live vocab table
+      const matchedKeys = new Set(currentTokens.map(t => t.vocabKey));
+      renderVocabularyTable(matchedKeys);
+
+      container.innerHTML = "";
+
+      if (currentTokens.length === 0) {
+        container.innerHTML = `<span class="text-xs text-slate-400 italic py-4">Type a sentence above to see tokens appear...</span>`;
+        return;
+      }
+
+      currentTokens.forEach((tok, idx) => {
+        const colorClass = tok.isOOV
+          ? "bg-rose-100 text-rose-900 border-rose-300"
+          : TOKEN_COLORS[idx % TOKEN_COLORS.length];
+
+        const wrapper = document.createElement("button");
+        wrapper.type = "button";
+        wrapper.className = "group flex flex-col items-center focus:outline-none transition transform hover:-translate-y-0.5";
+        wrapper.title = tok.isOOV
+          ? `"${tok.text}" is not in your vocabulary → mapped to <UNK> [1]. Click to add it to vocab!`
+          : `Known token "${tok.text}" → Vocab ID [${tok.id}]. Click to plot in 3D space.`;
+
+        wrapper.innerHTML = `
+          <span class="px-2.5 py-1 rounded-lg border text-sm font-medium shadow-2xs ${colorClass} group-hover:ring-2 group-hover:ring-indigo-400">
+            ${tok.text}
+          </span>
+          <span class="font-mono-code text-[10px] ${tok.isOOV ? "text-rose-600 font-bold" : "text-slate-500 font-medium"} mt-1 group-hover:text-indigo-600">
+            ${tok.isOOV ? `<UNK> [${tok.id}]` : `[${tok.id}]`}
+          </span>
+        `;
+
+        wrapper.addEventListener("click", () => {
+          if (tok.isOOV) {
+            addSingleTokenToVocab(tok.text);
+            showStatus(`Added "${tok.text}" to your vocabulary! It now has its own Token ID instead of <UNK>.`);
+          } else {
+            highlightOrPlotSentence(tok.text);
+            document.getElementById("canvas-wrapper").scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+
+        container.appendChild(wrapper);
+      });
+    }
+
+    // =========================================================================
+    // 3. PART 2: THREE.JS 3D EMBEDDING VISUALIZATION (FULL SENTENCES)
+    // =========================================================================
+    let embeddingMode = "spelling"; // "spelling" | "meaning"
+    let scene, camera, renderer;
+    let sentenceNodes = []; // { data, mesh, haloMesh, labelEl, currentPos, targetPos, targetColor }
+    let selectedSentenceText = "The cat sat on the mat";
+
+    let isDragging = false;
+    let prevMouse = { x: 0, y: 0 };
+    let spherical = { radius: 15.5, theta: 0.65, phi: 1.15 };
+
+    function init3DScene() {
+      const container = document.getElementById("canvas-wrapper");
+      const labelsContainer = document.getElementById("labels-container");
+
+      scene = new THREE.Scene();
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+      updateCameraPosition();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.insertBefore(renderer.domElement, labelsContainer);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.65);
+      dirLight.position.set(10, 15, 10);
+      scene.add(dirLight);
+
+      const gridHelper = new THREE.GridHelper(12, 12, 0xcbd5e1, 0xe2e8f0);
+      gridHelper.position.y = -4.5;
+      scene.add(gridHelper);
+
+      const axesMat = new THREE.LineBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.65 });
+      const axesGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-5.8, 0, 0), new THREE.Vector3(5.8, 0, 0),
+        new THREE.Vector3(0, -4.5, 0), new THREE.Vector3(0, 4.5, 0),
+        new THREE.Vector3(0, 0, -5.8), new THREE.Vector3(0, 0, 5.8)
+      ]);
+      scene.add(new THREE.LineSegments(axesGeo, axesMat));
+
+      SENTENCE_DATASET.forEach(item => createSentenceNode(item));
+
+      refreshSelectionAndNeighbors();
+      setupCameraControls(container);
+      window.addEventListener("resize", onWindowResize);
+    }
+
+    function createSentenceNode(item) {
+      const labelsContainer = document.getElementById("labels-container");
+      const initialPos = embeddingMode === "spelling" ? item.sPos : item.mPos;
+      const initialCluster = embeddingMode === "spelling"
+        ? SPELLING_CLUSTERS[item.sCluster]
+        : MEANING_CLUSTERS[item.mCluster];
+
+      const geometry = new THREE.SphereGeometry(0.28, 24, 24);
+      const material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(initialCluster.color),
+        roughness: 0.3,
+        metalness: 0.1
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(initialPos[0], initialPos[1], initialPos[2]);
+      scene.add(mesh);
+
+      const haloGeo = new THREE.SphereGeometry(0.48, 24, 24);
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: 0x4f46e5,
+        transparent: true,
+        opacity: 0.0
+      });
+      const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+      mesh.add(haloMesh);
+
+      const labelEl = document.createElement("div");
+      labelEl.className = "word-label";
+      labelEl.textContent = item.text;
+      labelEl.title = item.text;
+      labelsContainer.appendChild(labelEl);
+
+      sentenceNodes.push({
+        data: item,
+        mesh,
+        haloMesh,
+        labelEl,
+        currentPos: new THREE.Vector3(...initialPos),
+        targetPos: new THREE.Vector3(...initialPos),
+        targetColor: new THREE.Color(initialCluster.color)
+      });
+    }
+
+    function setEmbeddingMode(mode) {
+      embeddingMode = mode;
+
+      const btnSpell = document.getElementById("btn-embed-spelling");
+      const btnMean = document.getElementById("btn-embed-meaning");
+      const expBox = document.getElementById("embed-explanation");
+
+      if (mode === "spelling") {
+        btnSpell.className = "px-3.5 py-2 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5";
+        btnMean.className = "px-3.5 py-2 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5";
+        expBox.innerHTML = `<strong class="text-indigo-900">Spelling-Based Space:</strong> Sentences with matching words or letters cluster together—so <em>"I ate a sweet red apple"</em> sits right next to <em>"Apple launched a new smartphone"</em> because both contain the word <strong>apple</strong>!`;
+      } else {
+        btnMean.className = "px-3.5 py-2 text-xs font-semibold rounded-lg bg-white text-emerald-700 shadow-sm transition flex items-center gap-1.5";
+        btnSpell.className = "px-3.5 py-2 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5";
+        expBox.innerHTML = `<strong class="text-emerald-900">Meaning-Based (Semantic) Space:</strong> Sentences with the same overall meaning cluster together even with zero shared words—e.g., <em>"The cat sat on the mat"</em> moves right beside <em>"A feline rested on the rug"</em>!`;
+      }
+
+      sentenceNodes.forEach(node => {
+        const posArr = mode === "spelling" ? node.data.sPos : node.data.mPos;
+        const clusterObj = mode === "spelling"
+          ? SPELLING_CLUSTERS[node.data.sCluster]
+          : MEANING_CLUSTERS[node.data.mCluster];
+
+        node.targetPos.set(posArr[0], posArr[1], posArr[2]);
+        node.targetColor.set(clusterObj.color);
+      });
+
+      refreshSelectionAndNeighbors();
+    }
+
+    function refreshSelectionAndNeighbors() {
+      // 1. Update visual highlights on 3D nodes
+      let activeNode = sentenceNodes.find(n => n.data.text.toLowerCase() === selectedSentenceText.toLowerCase());
+      if (!activeNode && sentenceNodes.length > 0) {
+        activeNode = sentenceNodes[0];
+        selectedSentenceText = activeNode.data.text;
+      }
+
+      sentenceNodes.forEach(node => {
+        const isSelected = node === activeNode;
+        if (isSelected) {
+          node.labelEl.classList.add("highlighted");
+          node.haloMesh.material.opacity = 0.35;
+          node.mesh.scale.set(1.38, 1.38, 1.38);
+        } else {
+          node.labelEl.classList.remove("highlighted");
+          node.haloMesh.material.opacity = 0.0;
+          node.mesh.scale.set(1, 1, 1);
+        }
+      });
+
+      // 2. Update Inspector Sidebar (Selected Sentence + Coords + Top 3 Nearest Neighbors)
+      if (activeNode) {
+        const pos = embeddingMode === "spelling" ? activeNode.data.sPos : activeNode.data.mPos;
+        const clusterInfo = embeddingMode === "spelling"
+          ? SPELLING_CLUSTERS[activeNode.data.sCluster]
+          : MEANING_CLUSTERS[activeNode.data.mCluster];
+
+        document.getElementById("selected-text").textContent = `"${activeNode.data.text}"`;
+        document.getElementById("selected-coords").textContent = `(${pos[0].toFixed(1)}, ${pos[1].toFixed(1)}, ${pos[2].toFixed(1)})`;
+        document.getElementById("selected-cluster-badge").innerHTML = `Cluster: <strong style="color:${clusterInfo.color}">${clusterInfo.label}</strong>`;
+
+        const nnModeTag = document.getElementById("nn-mode-tag");
+        nnModeTag.textContent = embeddingMode === "spelling" ? "Spelling Mode" : "Meaning Mode";
+        nnModeTag.className = embeddingMode === "spelling"
+          ? "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700"
+          : "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700";
+
+        // Compute Euclidean distances in the current mode's target coordinates
+        const activeVec = new THREE.Vector3(...pos);
+        const neighbors = sentenceNodes
+          .filter(n => n !== activeNode)
+          .map(n => {
+            const otherPos = embeddingMode === "spelling" ? n.data.sPos : n.data.mPos;
+            const dist = activeVec.distanceTo(new THREE.Vector3(...otherPos));
+            return { node: n, dist };
+          })
+          .sort((a, b) => a.dist - b.dist)
+          .slice(0, 3);
+
+        const nnList = document.getElementById("nearest-neighbors-list");
+        nnList.innerHTML = "";
+        neighbors.forEach((item, idx) => {
+          const similarityPct = Math.max(12, Math.min(99, Math.round(100 - item.dist * 8.5)));
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "w-full text-left bg-white hover:bg-indigo-50/60 p-2.5 rounded-lg border border-slate-200 transition flex items-start justify-between gap-2";
+          row.innerHTML = `
+            <span class="text-xs font-medium text-slate-800 leading-snug">
+              <strong class="text-slate-400 mr-1">#${idx + 1}</strong> "${item.node.data.text}"
+            </span>
+            <span class="font-mono-code text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+              ${similarityPct}%
+            </span>
+          `;
+          row.addEventListener("click", () => {
+            selectedSentenceText = item.node.data.text;
+            refreshSelectionAndNeighbors();
+          });
+          nnList.appendChild(row);
+        });
+      }
+
+      // 3. Update Legend
+      const legendEl = document.getElementById("cluster-legend");
+      const clusters = embeddingMode === "spelling" ? SPELLING_CLUSTERS : MEANING_CLUSTERS;
+      let legendHTML = `<div class="font-bold text-slate-700 text-[11px] uppercase tracking-wider mb-1">Clusters</div>`;
+      Object.values(clusters).forEach(c => {
+        legendHTML += `
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${c.color}"></span>
+            <span class="text-[11px] text-slate-600 truncate">${c.label}</span>
+          </div>
+        `;
+      });
+      legendEl.innerHTML = legendHTML;
+
+      // 4. Update Clickable Sentence Chips Bar
+      const chipsBar = document.getElementById("sentence-chips-bar");
+      chipsBar.innerHTML = `<span class="text-xs font-medium text-slate-500 mr-1">Sentences in 3D:</span>`;
+      sentenceNodes.forEach(node => {
+        const txt = node.data.text;
+        const isSel = txt.toLowerCase() === selectedSentenceText.toLowerCase();
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = txt;
+        btn.className = isSel
+          ? "text-xs px-3 py-1 rounded-full bg-indigo-600 text-white font-semibold shadow-2xs transition"
+          : "text-xs px-3 py-1 rounded-full bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 transition";
+        btn.addEventListener("click", () => {
+          selectedSentenceText = txt;
+          refreshSelectionAndNeighbors();
+        });
+        chipsBar.appendChild(btn);
+      });
+    }
+
+    // Smart heuristic to map any custom user sentence into Spelling & Meaning 3D coordinates
+    function computeSentenceCoords(rawSentence) {
+      const cleanText = rawSentence.trim();
+      const lower = cleanText.toLowerCase();
+      const words = lower.match(/[a-z0-9]+/g) || [];
+      const jitter = () => (Math.random() - 0.5) * 1.1;
+
+      // 1. Spelling-Based Coordinates (based on lexical overlap, shared words, starting word)
+      let sCluster = "custom";
+      let sPos = [(Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4];
+
+      if (words.includes("apple")) {
+        sCluster = "apple_trap";
+        sPos = [-3.3 + jitter(), -2.0 + jitter(), 2.6 + jitter()];
+      } else if ((words.includes("cat") || words.includes("car") || words.includes("mat")) && lower.startsWith("the ")) {
+        sCluster = "cat_mat_trap";
+        sPos = [-4.1 + jitter(), 2.5 + jitter(), 1.8 + jitter()];
+      } else if (lower.startsWith("the ")) {
+        sCluster = "the_start";
+        sPos = [3.8 + jitter(), 2.2 + jitter(), -1.7 + jitter()];
+      } else if (/^(i|he|she|we|they|a|an)\b/.test(lower)) {
+        sCluster = "pronoun_past";
+        sPos = [2.3 + jitter(), -2.6 + jitter(), -2.3 + jitter()];
+      }
+
+      // 2. Meaning-Based Coordinates (semantic topic keyword detection)
+      let mCluster = "custom";
+      let mPos = [(Math.random() - 0.5) * 4.5, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4.5];
+
+      const petKeywords = ["cat", "kitten", "feline", "dog", "puppy", "pet", "animal", "horse", "bird", "rug", "carpet", "barked", "slept"];
+      const foodKeywords = ["eat", "ate", "sweet", "apple", "banana", "grape", "fruit", "food", "cake", "baked", "hungry", "lunch", "dinner", "chocolate", "fresh"];
+      const techKeywords = ["code", "coding", "python", "javascript", "computer", "smartphone", "phone", "launched", "ai", "artificial", "intelligence", "data", "programmer", "software", "car", "vehicle", "road"];
+      const royalKeywords = ["king", "queen", "prince", "princess", "kingdom", "crown", "royal", "throne", "castle", "palace", "golden"];
+
+      const countMatches = (kwList) => words.filter(w => kwList.includes(w)).length;
+      const scores = [
+        { cluster: "pets",    score: countMatches(petKeywords),   base: [-4.1, -2.3,  2.1] },
+        { cluster: "food",    score: countMatches(foodKeywords),  base: [ 4.1, -2.3, -2.0] },
+        { cluster: "tech",    score: countMatches(techKeywords),  base: [ 3.7,  2.7,  2.1] },
+        { cluster: "royalty", score: countMatches(royalKeywords), base: [-3.9,  3.1, -1.9] }
+      ].sort((a, b) => b.score - a.score);
+
+      if (scores[0].score > 0) {
+        mCluster = scores[0].cluster;
+        mPos = [
+          scores[0].base[0] + jitter(),
+          scores[0].base[1] + jitter(),
+          scores[0].base[2] + jitter()
+        ];
+      }
+
+      return { text: cleanText, sCluster, sPos, mCluster, mPos };
+    }
+
+    function showStatus(msg) {
+      const banner = document.getElementById("status-banner");
+      document.getElementById("status-text").textContent = msg;
+      banner.classList.remove("hidden");
+    }
+
+    function highlightOrPlotSentence(rawInput) {
+      const clean = rawInput.trim();
+      if (!clean) return;
+
+      const existing = sentenceNodes.find(n => n.data.text.toLowerCase() === clean.toLowerCase());
+      if (existing) {
+        selectedSentenceText = existing.data.text;
+        refreshSelectionAndNeighbors();
+        showStatus(`Selected "${existing.data.text}" in the 3D embedding space.`);
+      } else {
+        const newItem = computeSentenceCoords(clean);
+        SENTENCE_DATASET.push(newItem);
+        createSentenceNode(newItem);
+        selectedSentenceText = newItem.text;
+        refreshSelectionAndNeighbors();
+        showStatus(`Plotted "${newItem.text}" in 3D! Toggle between Spelling and Meaning to see how its nearest neighbors shift.`);
+      }
+    }
+
+    // =========================================================================
+    // 4. CAMERA ORBIT & ANIMATION LOOP
+    // =========================================================================
+    function updateCameraPosition() {
+      camera.position.x = spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      camera.position.y = spherical.radius * Math.cos(spherical.phi);
+      camera.position.z = spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      camera.lookAt(0, 0, 0);
+    }
+
+    function setupCameraControls(container) {
+      container.addEventListener("mousedown", e => {
+        isDragging = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+      window.addEventListener("mousemove", e => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        prevMouse = { x: e.clientX, y: e.clientY };
+
+        spherical.theta -= dx * 0.008;
+        spherical.phi = Math.max(0.2, Math.min(Math.PI - 0.2, spherical.phi - dy * 0.008));
+        updateCameraPosition();
+      });
+      window.addEventListener("mouseup", () => { isDragging = false; });
+
+      container.addEventListener("touchstart", e => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      }, { passive: true });
+
+      container.addEventListener("touchmove", e => {
+        if (!isDragging || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - prevMouse.x;
+        const dy = e.touches[0].clientY - prevMouse.y;
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+        spherical.theta -= dx * 0.009;
+        spherical.phi = Math.max(0.2, Math.min(Math.PI - 0.2, spherical.phi - dy * 0.009));
+        updateCameraPosition();
+      }, { passive: true });
+
+      container.addEventListener("touchend", () => { isDragging = false; });
+
+      container.addEventListener("wheel", e => {
+        e.preventDefault();
+        spherical.radius = Math.max(6, Math.min(28, spherical.radius + e.deltaY * 0.01));
+        updateCameraPosition();
+      }, { passive: false });
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById("canvas-wrapper");
+      if (!container || !renderer || !camera) return;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const container = document.getElementById("canvas-wrapper");
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      sentenceNodes.forEach(node => {
+        node.currentPos.lerp(node.targetPos, 0.08);
+        node.mesh.position.copy(node.currentPos);
+        node.mesh.material.color.lerp(node.targetColor, 0.1);
+
+        const projected = node.currentPos.clone().project(camera);
+        const x = (projected.x * 0.5 + 0.5) * width;
+        const y = (-(projected.y * 0.5) + 0.5) * height;
+
+        if (projected.z > 1) {
+          node.labelEl.style.display = "none";
+        } else {
+          node.labelEl.style.display = "block";
+          node.labelEl.style.left = `${x}px`;
+          node.labelEl.style.top = `${y}px`;
+          const depthScale = Math.max(0.82, Math.min(1.1, 1.32 - projected.z * 0.35));
+          if (node.data.text.toLowerCase() !== selectedSentenceText.toLowerCase()) {
+            node.labelEl.style.transform = `translate(-50%, -145%) scale(${depthScale.toFixed(2)})`;
+          }
+        }
+      });
+
+      renderer.render(scene, camera);
+    }
+
+    // =========================================================================
+    // 5. EVENT LISTENERS & INITIALIZATION
+    // =========================================================================
+    window.onload = function () {
+      const inputEl = document.getElementById("tokenizer-input");
+      const btnSubword = document.getElementById("btn-mode-subword");
+      const btnWord = document.getElementById("btn-mode-word");
+      const modeDesc = document.getElementById("tokenizer-mode-desc");
+
+      inputEl.addEventListener("input", renderTokens);
+
+      btnSubword.addEventListener("click", () => {
+        tokenizerMode = "subword";
+        btnSubword.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition";
+        btnWord.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition";
+        modeDesc.innerHTML = `<strong>Subword (BPE):</strong> Matches known words in your vocabulary first, or splits unknown words into known subword pieces before falling back to <code>&lt;UNK&gt;</code>.`;
+        buildVocabularyFromText(document.getElementById("vocab-corpus-input").value);
+      });
+
+      btnWord.addEventListener("click", () => {
+        tokenizerMode = "word";
+        btnWord.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition";
+        btnSubword.className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition";
+        modeDesc.innerHTML = `<strong>Word-Level:</strong> Splits strictly on whitespace and punctuation—any whole word missing from your built vocabulary becomes <code>&lt;UNK&gt; [1]</code>.`;
+        buildVocabularyFromText(document.getElementById("vocab-corpus-input").value);
+      });
+
+      // Vocabulary Builder controls
+      document.getElementById("btn-build-vocab").addEventListener("click", () => {
+        const corpus = document.getElementById("vocab-corpus-input").value;
+        buildVocabularyFromText(corpus);
+      });
+
+      document.getElementById("btn-load-sample-corpus").addEventListener("click", () => {
+        const corpusArea = document.getElementById("vocab-corpus-input");
+        corpusArea.value = SAMPLE_EXTENDED_CORPUS;
+        buildVocabularyFromText(SAMPLE_EXTENDED_CORPUS);
+      });
+
+      document.getElementById("btn-reset-vocab").addEventListener("click", () => {
+        const corpusArea = document.getElementById("vocab-corpus-input");
+        corpusArea.value = DEFAULT_CORPUS;
+        buildVocabularyFromText(DEFAULT_CORPUS);
+      });
+
+      const singleVocabInput = document.getElementById("single-vocab-input");
+      document.getElementById("btn-add-single-vocab").addEventListener("click", () => {
+        addSingleTokenToVocab(singleVocabInput.value);
+        singleVocabInput.value = "";
+      });
+      singleVocabInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          addSingleTokenToVocab(singleVocabInput.value);
+          singleVocabInput.value = "";
+        }
+      });
+
+      document.getElementById("vocab-filter-input").addEventListener("input", () => {
+        const matchedKeys = new Set(currentTokens.map(t => t.vocabKey));
+        renderVocabularyTable(matchedKeys);
+      });
+
+      document.querySelectorAll(".preset-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          inputEl.value = btn.getAttribute("data-text");
+          renderTokens();
+        });
+      });
+
+      // Send full sentence from Part 1 to Part 2
+      document.getElementById("btn-plot-part1-sentence").addEventListener("click", () => {
+        const sentence = inputEl.value.trim();
+        if (!sentence) return;
+        highlightOrPlotSentence(sentence);
+        document.getElementById("canvas-wrapper").scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+
+      // Part 2 listeners
+      document.getElementById("btn-embed-spelling").addEventListener("click", () => setEmbeddingMode("spelling"));
+      document.getElementById("btn-embed-meaning").addEventListener("click", () => setEmbeddingMode("meaning"));
+
+      document.getElementById("btn-reset-camera").addEventListener("click", () => {
+        spherical = { radius: 15.5, theta: 0.65, phi: 1.15 };
+        updateCameraPosition();
+      });
+
+      const sentenceInput = document.getElementById("sentence-search-input");
+      document.getElementById("btn-plot-sentence").addEventListener("click", () => {
+        highlightOrPlotSentence(sentenceInput.value);
+        sentenceInput.value = "";
+      });
+      sentenceInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          highlightOrPlotSentence(sentenceInput.value);
+          sentenceInput.value = "";
+        }
+      });
+
+      document.getElementById("close-status").addEventListener("click", () => {
+        document.getElementById("status-banner").classList.add("hidden");
+      });
+
+      buildVocabularyFromText(DEFAULT_CORPUS);
+      init3DScene();
+      animate();
+    };
+  </script>
+</body>
+</html>
